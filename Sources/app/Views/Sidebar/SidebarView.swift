@@ -65,17 +65,44 @@ struct SidebarView: View {
 
     @ViewBuilder
     private var connectionStatusDot: some View {
-        Circle()
-            .fill(connectionColor)
-            .frame(width: 8, height: 8)
+        // Shape differs per state (filled / dashed / hollow) so the connection
+        // status isn't conveyed by color alone — WCAG 1.4.1.
+        Image(systemName: connectionSymbol)
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(connectionColor)
+            .frame(width: 12, height: 12)
+            .accessibilityLabel("Connection: \(connectionLabel)")
+            .help(connectionLabel)
     }
 
     private var connectionColor: Color {
+        // Native system colors: this is a standalone indicator dot with no text
+        // on it, so the WCAG text-contrast palette doesn't apply — the bright
+        // system hues read better. State is also distinguished by symbol shape
+        // (see connectionSymbol) plus the accessibilityLabel/help below.
         switch appViewModel.connectionState {
         case .connected: return .green
         case .connecting: return .orange
         case .disconnected: return .gray
         case .error: return .red
+        }
+    }
+
+    private var connectionSymbol: String {
+        switch appViewModel.connectionState {
+        case .connected: return "circle.fill"
+        case .connecting: return "circle.dotted"
+        case .disconnected: return "circle"
+        case .error: return "exclamationmark.circle.fill"
+        }
+    }
+
+    private var connectionLabel: String {
+        switch appViewModel.connectionState {
+        case .connected: return "Connected"
+        case .connecting: return "Connecting"
+        case .disconnected: return "Disconnected"
+        case .error: return "Error"
         }
     }
 }

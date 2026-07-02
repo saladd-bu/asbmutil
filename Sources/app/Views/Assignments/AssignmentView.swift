@@ -85,6 +85,8 @@ struct AssignmentView: View {
                 .frame(minHeight: 50, maxHeight: 70)
                 .border(Color.secondary.opacity(0.3))
                 .disabled(!viewModel.importedSerials.isEmpty)
+                .accessibilityLabel("Device serial numbers")
+                .accessibilityHint("Enter serial numbers separated by commas or new lines")
 
             HStack {
                 Button("Import CSV") { showFilePicker = true }
@@ -126,25 +128,22 @@ struct AssignmentView: View {
         }
 
         if let error = viewModel.errorMessage {
-            Label(error, systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.red).font(.caption)
+            InlineHint(.danger, error)
         }
 
         if !viewModel.notFoundSerials.isEmpty || !viewModel.erroredSerials.isEmpty {
             GroupBox {
                 VStack(alignment: .leading, spacing: 6) {
                     if !viewModel.notFoundSerials.isEmpty {
-                        Label("\(viewModel.notFoundSerials.count) serial(s) not found — excluded", systemImage: "questionmark.circle")
-                            .foregroundStyle(.orange).font(.caption.weight(.medium))
+                        InlineHint(.warning, "\(viewModel.notFoundSerials.count) serial(s) not found — excluded")
                         Text(viewModel.notFoundSerials.joined(separator: ", "))
                             .font(.caption.monospaced()).foregroundStyle(.secondary)
                             .textSelection(.enabled)
                         Text("Not in School/Business Manager yet (not registered by the reseller), or mistyped.")
-                            .font(.caption2).foregroundStyle(.tertiary)
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                     if !viewModel.erroredSerials.isEmpty {
-                        Label("\(viewModel.erroredSerials.count) serial(s) could not be verified — excluded", systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.orange).font(.caption.weight(.medium))
+                        InlineHint(.warning, "\(viewModel.erroredSerials.count) serial(s) could not be verified — excluded")
                         Text(viewModel.erroredSerials.joined(separator: "\n"))
                             .font(.caption.monospaced()).foregroundStyle(.secondary)
                             .textSelection(.enabled)
@@ -164,7 +163,7 @@ struct AssignmentView: View {
                         NSPasteboard.general.setString(result.id, forType: .string)
                     }.buttonStyle(.borderless).font(.caption)
                 }
-                LabeledContent("Status", value: result.status)
+                LabeledContent("Status", value: StatusStyle.displayLabel(result.status))
                 LabeledContent("Devices", value: "\(result.deviceCount)")
             }
         }
@@ -173,17 +172,15 @@ struct AssignmentView: View {
             GroupBox("Confirmation") {
                 VStack(alignment: .leading, spacing: 6) {
                     if let status = viewModel.confirmStatus {
-                        LabeledContent("Activity", value: status)
+                        LabeledContent("Activity", value: StatusStyle.displayLabel(status))
                     }
                     if viewModel.confirmStatus == "TIMEOUT" {
-                        Label("Activity didn't finish in time — couldn't confirm end state.", systemImage: "clock.badge.exclamationmark")
-                            .foregroundStyle(.orange).font(.caption)
+                        InlineHint(.warning, "Activity didn't finish in time — couldn't confirm end state.")
                     } else {
                         let total = viewModel.confirmedCount + viewModel.confirmMismatched.count + viewModel.confirmErrored.count
-                        Label("\(viewModel.confirmedCount)/\(total) device(s) confirmed in the expected state",
-                              systemImage: viewModel.confirmMismatched.isEmpty && viewModel.confirmErrored.isEmpty ? "checkmark.circle" : "exclamationmark.circle")
-                            .foregroundStyle(viewModel.confirmMismatched.isEmpty && viewModel.confirmErrored.isEmpty ? .green : .orange)
-                            .font(.caption.weight(.medium))
+                        let clean = viewModel.confirmMismatched.isEmpty && viewModel.confirmErrored.isEmpty
+                        InlineHint(clean ? .success : .warning,
+                                   "\(viewModel.confirmedCount)/\(total) device(s) confirmed in the expected state")
                         if !viewModel.confirmMismatched.isEmpty {
                             Text("Not in expected state:").font(.caption2).foregroundStyle(.secondary)
                             Text(viewModel.confirmMismatched.joined(separator: "\n"))
@@ -220,14 +217,16 @@ struct AssignmentView: View {
 
             if activityHistory.isEmpty {
                 Text("Activities from this session will appear here.")
-                    .foregroundStyle(.tertiary).font(.caption)
+                    .foregroundStyle(.secondary).font(.caption)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(activityHistory) { activity in
+                    let isUnassign = activity.activityType.contains("UNASSIGN")
                     HStack(spacing: 10) {
-                        Image(systemName: activity.activityType.contains("UNASSIGN")
+                        Image(systemName: isUnassign
                               ? "arrow.uturn.backward.square" : "arrow.right.square")
                             .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(activity.deviceSerials.count == 1
                                  ? activity.deviceSerials[0] : "Multiple")
@@ -239,6 +238,8 @@ struct AssignmentView: View {
                         StatusBadge(status: activity.status)
                     }
                     .padding(.vertical, 2)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(isUnassign ? "Unassign" : "Assign"), \(activity.deviceSerials.count == 1 ? activity.deviceSerials[0] : "\(activity.deviceCount) devices"), \(activity.mdmServerName ?? activity.mdmServerId), status \(StatusStyle.displayLabel(activity.status))")
                 }
             }
         }

@@ -37,9 +37,7 @@ struct MDMServerDetailView: View {
                 ProgressView("Loading devices...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = errorMessage {
-                Text("Error: \(error)")
-                    .foregroundStyle(.red)
-                    .font(.caption)
+                InlineHint(.danger, error)
                     .padding()
                 Spacer()
             } else {

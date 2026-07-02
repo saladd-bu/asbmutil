@@ -20,9 +20,7 @@ struct DeviceDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = viewModel.errorMessage {
                 VStack(alignment: .leading, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
-                    Text(error).font(.caption).foregroundStyle(.secondary)
+                    InlineHint(.danger, error)
                     Button("Retry") { Task { await loadInfo() } }.font(.caption)
                 }
                 .padding()
@@ -90,9 +88,8 @@ struct DeviceDetailView: View {
                             if let serverName = info.assignedMdm?.serverName {
                                 Text(serverName).font(.caption)
                                     .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(.blue.opacity(0.15))
-                                    .foregroundStyle(.blue)
-                                    .clipShape(Capsule())
+                                    .background(Color.blue.opacity(0.12), in: Capsule())
+                                    .overlay(Capsule().strokeBorder(Color.blue.opacity(0.4), lineWidth: 1))
                             }
                         }
                     }
@@ -102,6 +99,7 @@ struct DeviceDetailView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("View JSON")
+                    .accessibilityLabel("View JSON")
                 }
 
                 Divider()
@@ -138,12 +136,11 @@ struct DeviceDetailView: View {
                 .foregroundStyle(.secondary).textCase(.uppercase)
 
             if assignResult != nil {
-                Label("Done", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green).font(.callout)
+                InlineHint(.success, "Done")
                 if let r = assignResult {
                     Text("Activity: \(r.id)")
                         .font(.caption2).fontDesign(.monospaced)
-                        .foregroundStyle(.tertiary).textSelection(.enabled)
+                        .foregroundStyle(.secondary).textSelection(.enabled)
                 }
             } else {
                 if currentMdm != nil {
@@ -167,7 +164,7 @@ struct DeviceDetailView: View {
                         Button("Unassign") {
                             Task { await performUnassign(currentMdm: currentMdm!) }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
                         .tint(.orange)
                         .controlSize(.small)
                         .disabled(isAssigning)
@@ -197,8 +194,7 @@ struct DeviceDetailView: View {
                 }
 
                 if let assignError {
-                    Text(assignError)
-                        .foregroundStyle(.red).font(.caption2)
+                    InlineHint(.danger, assignError)
                 }
             }
         }
@@ -285,7 +281,8 @@ struct DeviceDetailView: View {
     }
 
     private func appleCareRows(_ c: AppleCareAttributes) -> [(String, String)] {
-        [("Plan", c.description ?? "-"), ("Status", c.status ?? "-"),
+        [("Plan", c.description ?? "-"),
+         ("Status", c.status.map(StatusStyle.displayLabel) ?? "-"),
          ("Start", c.startDateTime ?? "-"), ("End", c.endDateTime ?? "-"),
          ("Renewable", c.isRenewable == true ? "Yes" : "No")]
     }

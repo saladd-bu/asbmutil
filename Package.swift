@@ -35,6 +35,11 @@ let package = Package(
             dependencies: ["ASBMUtilCore"],
             path: "Sources/app"
         ),
+        .testTarget(
+            name: "ASBMUtilAppTests",
+            dependencies: ["ASBMUtilApp"],
+            path: "Tests/ASBMUtilAppTests"
+        ),
     ],
     swiftLanguageModes: [.v6]
 )

@@ -173,6 +173,13 @@ struct FilterPanelView: View {
         return values.filter { $0.localizedCaseInsensitiveContains(searchText) }
     }
 
+    /// Status values arrive as raw SCREAMING_SNAKE from the API; present them
+    /// title-cased (matching StatusBadge) while filtering still keys off the raw
+    /// value. Other categories (order #, capacity, model) are shown verbatim.
+    private func displayValue(_ value: String) -> String {
+        filters.selectedCategory == .status ? StatusStyle.displayLabel(value) : value
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -191,21 +198,26 @@ struct FilterPanelView: View {
                 // Categories
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(FilterCategory.allCases) { cat in
-                        HStack {
-                            Text(cat.rawValue).font(.subheadline)
-                            Spacer()
-                            if filters.isActive(cat) {
-                                Circle().fill(.blue).frame(width: 6, height: 6)
-                            }
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(filters.selectedCategory == cat ? Color.accentColor.opacity(0.15) : .clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .contentShape(Rectangle())
-                        .onTapGesture {
+                        Button {
                             filters.selectedCategory = cat
                             searchText = ""
+                        } label: {
+                            HStack {
+                                Text(cat.rawValue).font(.subheadline)
+                                Spacer()
+                                if filters.isActive(cat) {
+                                    Circle().fill(.blue).frame(width: 6, height: 6)
+                                }
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(filters.selectedCategory == cat ? Color.accentColor.opacity(0.15) : .clear)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(cat.rawValue)
+                        .accessibilityValue(filters.isActive(cat) ? "Filtered" : "")
+                        .accessibilityAddTraits(filters.selectedCategory == cat ? [.isButton, .isSelected] : .isButton)
                     }
                 }
                 .frame(width: 150)
@@ -229,14 +241,21 @@ struct FilterPanelView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(filteredValues, id: \.self) { value in
                                 let on = filters.selectedValues[filters.selectedCategory]?.contains(value) ?? false
-                                HStack(spacing: 8) {
-                                    Image(systemName: on ? "checkmark.square.fill" : "square")
-                                        .foregroundStyle(on ? .blue : .secondary)
-                                    Text(value).font(.subheadline)
-                                    Spacer()
+                                let display = displayValue(value)
+                                Button {
+                                    filters.toggle(value: value, in: filters.selectedCategory)
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: on ? "checkmark.square.fill" : "square")
+                                            .foregroundStyle(on ? .blue : .secondary)
+                                        Text(display).font(.subheadline)
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle())
                                 }
-                                .contentShape(Rectangle())
-                                .onTapGesture { filters.toggle(value: value, in: filters.selectedCategory) }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(display)
+                                .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
                             }
                             if filteredValues.isEmpty {
                                 Text("No matches").foregroundStyle(.tertiary).font(.caption)
@@ -303,8 +322,7 @@ struct InlineAssignView: View {
 
                 if let result {
                     VStack(alignment: .leading, spacing: 4) {
-                        Label("Done", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green).font(.callout)
+                        InlineHint(.success, "Done")
                         Text("Activity: \(result.id)")
                             .font(.caption).fontDesign(.monospaced).foregroundStyle(.secondary)
                             .textSelection(.enabled)
@@ -314,8 +332,7 @@ struct InlineAssignView: View {
                 }
 
                 if let errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red).font(.caption)
+                    InlineHint(.danger, errorMessage)
                 }
 
                 if result == nil {
