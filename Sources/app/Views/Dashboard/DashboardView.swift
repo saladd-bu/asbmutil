@@ -6,13 +6,9 @@ struct DashboardView: View {
     @Environment(AppViewModel.self) private var appViewModel
     let onSelectFilter: (FilterCategory, String) -> Void
 
-    private var stats: DashboardStats {
-        DashboardStats(
-            devices: appViewModel.devices,
-            servers: appViewModel.mdmServers,
-            serverCounts: appViewModel.serverDeviceCounts
-        )
-    }
+    // Read the memoized stats computed off the main actor by AppViewModel; never
+    // re-derive them here (this property is evaluated on every render pass).
+    private var stats: DashboardStats { appViewModel.dashboardStats }
 
     var body: some View {
         ScrollView {
@@ -23,7 +19,7 @@ struct DashboardView: View {
                     ContentUnavailableView {
                         Label("Couldn't load dashboard", systemImage: "exclamationmark.triangle")
                     } description: { Text(error) } actions: {
-                        Button("Retry") { Task { await appViewModel.refreshDevices() } }
+                        Button("Retry") { appViewModel.refreshDevices() }
                     }
                     .frame(maxWidth: .infinity, minHeight: 300)
                 } else if appViewModel.devices.isEmpty {
@@ -48,20 +44,19 @@ struct DashboardView: View {
         }
         .navigationTitle("Dashboard")
         .toolbar {
+            ToolbarItem { LoadStatusIndicator() }
             ToolbarItem {
                 Button {
-                    Task { await appViewModel.refreshDevices() }
+                    appViewModel.refreshDevices()
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
-                .disabled(appViewModel.isLoadingDevices)
+                .disabled(appViewModel.deviceLoadState == .loading)
                 .keyboardShortcut("r", modifiers: .command)
             }
         }
         .task {
-            if appViewModel.devices.isEmpty && !appViewModel.isLoadingDevices {
-                await appViewModel.loadDevices()
-            }
+            appViewModel.startLoadIfNeeded()
         }
     }
 

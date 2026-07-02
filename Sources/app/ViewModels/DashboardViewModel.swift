@@ -1,7 +1,7 @@
 import Foundation
 import ASBMUtilCore
 
-struct DashboardBin: Identifiable, Hashable {
+struct DashboardBin: Identifiable, Hashable, Sendable {
     let label: String
     let count: Int
     let filterValue: String?
@@ -20,13 +20,13 @@ struct DashboardBin: Identifiable, Hashable {
     }
 }
 
-struct TimelineBin: Identifiable, Hashable {
+struct TimelineBin: Identifiable, Hashable, Sendable {
     let date: Date
     let count: Int
     var id: Date { date }
 }
 
-struct DashboardStats {
+struct DashboardStats: Sendable {
     let total: Int
     let assigned: Int
     let unassigned: Int
