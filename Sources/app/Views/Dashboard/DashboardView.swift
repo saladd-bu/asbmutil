@@ -108,11 +108,13 @@ struct DashboardView: View {
                         angularInset: 1.5
                     )
                     .cornerRadius(4)
-                    .foregroundStyle(by: .value("Status", bin.label))
+                    .foregroundStyle(by: .value("Status", StatusStyle.displayLabel(bin.label)))
+                    .accessibilityLabel(StatusStyle.displayLabel(bin.label))
+                    .accessibilityValue("\(bin.count) device\(bin.count == 1 ? "" : "s")")
                 }
                 .chartForegroundStyleScale([
-                    "ASSIGNED": Color.green,
-                    "UNASSIGNED": Color.orange
+                    "Assigned": Color.green,
+                    "Unassigned": Color.orange
                 ])
                 .chartLegend(position: .bottom, alignment: .center)
                 .frame(height: 200)
@@ -120,10 +122,10 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(stats.statusBins) { bin in
                         FilterRow(
-                            label: bin.label,
+                            label: StatusStyle.displayLabel(bin.label),
                             count: bin.count,
                             total: stats.total,
-                            color: bin.label == "ASSIGNED" ? .green : .orange
+                            color: StatusKind(apiStatus: bin.label) == .success ? .green : .orange
                         ) {
                             onSelectFilter(.status, bin.label)
                         }
@@ -161,6 +163,8 @@ struct DashboardView: View {
                     )
                     .foregroundStyle(Color.yellow.gradient)
                     .cornerRadius(4)
+                    .accessibilityLabel(bin.label)
+                    .accessibilityValue("\(bin.count) device\(bin.count == 1 ? "" : "s")")
                 }
                 .frame(height: 220)
                 .chartXAxis {
@@ -189,7 +193,7 @@ struct DashboardView: View {
 
                 if stats.unknownCapacityCount > 0 {
                     Text("\(stats.unknownCapacityCount) device\(stats.unknownCapacityCount == 1 ? "" : "s") with no reported capacity (accessories, Apple TV, etc.).")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
             }
         }
@@ -240,6 +244,8 @@ struct DashboardView: View {
                     )
                     .foregroundStyle(Color.mint.gradient)
                     .cornerRadius(3)
+                    .accessibilityLabel(bin.date.formatted(.dateTime.month(.wide).year()))
+                    .accessibilityValue("\(bin.count) device\(bin.count == 1 ? "" : "s")")
                 }
                 .frame(height: 200)
                 .chartXAxis {
@@ -298,7 +304,7 @@ struct DashboardView: View {
     }
 
     private var emptyChart: some View {
-        Text("No data").foregroundStyle(.tertiary)
+        Text("No data").foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 160)
     }
 
@@ -348,7 +354,7 @@ struct StatTile: View {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(value).font(.title3).fontWeight(.semibold).monospacedDigit()
                     if let secondary {
-                        Text(secondary).font(.caption).foregroundStyle(.tertiary)
+                        Text(secondary).font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -360,6 +366,8 @@ struct StatTile: View {
         .overlay(
             RoundedRectangle(cornerRadius: 10).stroke(.separator, lineWidth: 0.5)
         )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(secondary.map { "\(label): \(value), \($0)" } ?? "\(label): \(value)")
     }
 }
 

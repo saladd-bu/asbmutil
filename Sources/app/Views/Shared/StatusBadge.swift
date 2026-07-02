@@ -1,31 +1,30 @@
 import SwiftUI
 
+/// A status pill: soft native-tinted capsule with a colored icon, a same-hue
+/// border, and a title-cased **neutral** label. Meaning is carried by the text
+/// and the icon shape (never hue alone — WCAG 1.4.1); the color is a native
+/// system accent that adapts to Light/Dark and Increase Contrast on its own.
 struct StatusBadge: View {
     let status: String
 
-    var body: some View {
-        Text(status)
-            .font(.caption)
-            .fontWeight(.medium)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .background(badgeColor.opacity(0.15))
-            .foregroundStyle(badgeColor)
-            .clipShape(Capsule())
-    }
+    private var kind: StatusKind { StatusKind(apiStatus: status) }
+    private var label: String { StatusStyle.displayLabel(status) }
 
-    private var badgeColor: Color {
-        switch status.uppercased() {
-        case "ASSIGNED", "COMPLETE", "COMPLETED", "ACTIVE", "CONNECTED":
-            return .green
-        case "UNASSIGNED", "PENDING", "IN_PROGRESS":
-            return .orange
-        case "FAILED", "ERROR", "EXPIRED", "CANCELED":
-            return .red
-        case "TIMEOUT":
-            return .purple
-        default:
-            return .gray
+    var body: some View {
+        Label {
+            Text(label)
+        } icon: {
+            Image(systemName: kind.symbol).foregroundStyle(kind.color)
         }
+        .font(.caption)
+        .fontWeight(.medium)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)   // shrink slightly rather than truncate to "…" in tight columns
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .background(kind.color.opacity(0.12), in: Capsule())
+        .overlay(Capsule().strokeBorder(kind.color.opacity(0.5), lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Status: \(label)")
     }
 }

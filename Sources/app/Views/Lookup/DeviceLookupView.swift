@@ -47,13 +47,14 @@ struct DeviceLookupView: View {
 
             // Results
             if let error = viewModel.errorMessage {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red).font(.caption).padding()
+                InlineHint(.danger, error)
+                    .padding()
                 Spacer()
             } else if !viewModel.results.isEmpty {
                 Text("\(viewModel.assignedCount)/\(viewModel.results.count) devices have server assignments")
                     .font(.caption).foregroundStyle(.secondary)
                     .padding(.horizontal).padding(.top, 8)
+                    .accessibilityAddTraits(.updatesFrequently)
 
                 Table(viewModel.results) {
                     TableColumn("Serial") { (r: DeviceMdmResult) in

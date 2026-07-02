@@ -4,6 +4,7 @@ import ASBMUtilCore
 
 struct SettingsView: View {
     @Environment(AppViewModel.self) private var appViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var viewModel = SettingsViewModel()
     @State private var showFilePicker = false
     @State private var showDeleteConfirmation = false
@@ -118,18 +119,21 @@ struct SettingsView: View {
                 Text("Profile Name").font(.caption).foregroundStyle(.secondary)
                 TextField("e.g. production, school-west", text: $newName)
                     .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Profile Name")
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Client ID").font(.caption).foregroundStyle(.secondary)
                 TextField("SCHOOLAPI.xxx or BUSINESSAPI.xxx", text: $newClientId)
                     .textFieldStyle(.roundedBorder).fontDesign(.monospaced).font(.callout)
+                    .accessibilityLabel("Client ID")
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Key ID").font(.caption).foregroundStyle(.secondary)
                 TextField("Key ID from Apple", text: $newKeyId)
                     .textFieldStyle(.roundedBorder).fontDesign(.monospaced).font(.callout)
+                    .accessibilityLabel("Key ID")
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -140,7 +144,7 @@ struct SettingsView: View {
                             .controlSize(.small)
                     } else {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green).font(.caption)
+                            .foregroundStyle(Color.statusSuccess).font(.caption)
                         Text("Loaded (\(newPem.count) chars)")
                             .font(.caption).foregroundStyle(.secondary)
                         Button("Change...") { showNewPemPicker = true }
@@ -150,9 +154,7 @@ struct SettingsView: View {
             }
 
             if let newProfileError {
-                Label(newProfileError, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red).font(.caption)
-                    .fixedSize(horizontal: false, vertical: true)
+                InlineHint(.danger, newProfileError)
             }
 
             HStack {
@@ -203,29 +205,42 @@ struct SettingsView: View {
     }
 
     private func profileRow(_ profile: ProfileInfo) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let isExpanded = expandedProfile == profile.name
+        let isActive = profile.name == Keychain.getCurrentProfile()
+        return VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Image(systemName: expandedProfile == profile.name ? "chevron.down" : "chevron.right")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
+                // Disclosure control: keyboard-focusable Button, not a bare tap
+                // gesture, so it works under VoiceOver and Full Keyboard Access.
+                Button {
+                    toggleProfile(profile)
+                } label: {
+                    HStack {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(profile.name)
-                            .font(.body).fontWeight(.medium)
-                        if profile.name == Keychain.getCurrentProfile() {
-                            Text("Active")
-                                .font(.caption2)
-                                .padding(.horizontal, 5).padding(.vertical, 1)
-                                .background(.green.opacity(0.15))
-                                .foregroundStyle(.green)
-                                .clipShape(Capsule())
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(profile.name)
+                                    .font(.body).fontWeight(.medium)
+                                if isActive {
+                                    Text("Active")
+                                        .font(.caption2)
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(Color.green.opacity(0.15), in: Capsule())
+                                        .overlay(Capsule().strokeBorder(Color.green.opacity(0.4), lineWidth: 1))
+                                }
+                            }
                         }
+                        Spacer()
                     }
+                    .contentShape(Rectangle())
                 }
-
-                Spacer()
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(profile.name)\(isActive ? ", active profile" : "")")
+                .accessibilityHint("Show or hide credentials")
+                .accessibilityAddTraits(isExpanded ? [.isButton, .isSelected] : .isButton)
 
                 Button {
                     renamingProfile = profile.name
@@ -244,27 +259,29 @@ struct SettingsView: View {
                 }
                 .controlSize(.small)
                 .buttonStyle(.bordered)
-                .tint(.red)
                 .disabled(viewModel.profiles.count <= 1)
             }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation {
-                    if expandedProfile == profile.name {
-                        expandedProfile = nil
-                    } else {
-                        expandedProfile = profile.name
-                        viewModel.loadCredentials(for: profile.name)
-                    }
-                }
-            }
 
-            if expandedProfile == profile.name {
+            if isExpanded {
                 credentialFields()
                     .padding(.top, 10)
                     .padding(.leading, 28)
             }
         }
+    }
+
+    private func toggleProfile(_ profile: ProfileInfo) {
+        // Respect Reduce Motion — skip the expand/collapse animation when the
+        // user has asked the system to minimize motion (HIG; WCAG 2.3.3).
+        let mutate = {
+            if expandedProfile == profile.name {
+                expandedProfile = nil
+            } else {
+                expandedProfile = profile.name
+                viewModel.loadCredentials(for: profile.name)
+            }
+        }
+        if reduceMotion { mutate() } else { withAnimation { mutate() } }
     }
 
     private func credentialFields() -> some View {
@@ -274,6 +291,7 @@ struct SettingsView: View {
                     .frame(width: 60, alignment: .trailing)
                 TextField(text: $viewModel.clientId, prompt: Text("SCHOOLAPI.xxx or BUSINESSAPI.xxx")) {}
                     .textFieldStyle(.squareBorder).fontDesign(.monospaced).font(.callout)
+                    .accessibilityLabel("Client ID")
             }
 
             HStack {
@@ -281,6 +299,7 @@ struct SettingsView: View {
                     .frame(width: 60, alignment: .trailing)
                 TextField(text: $viewModel.keyId, prompt: Text("Key ID from Apple")) {}
                     .textFieldStyle(.squareBorder).fontDesign(.monospaced).font(.callout)
+                    .accessibilityLabel("Key ID")
             }
 
             HStack {
@@ -289,7 +308,7 @@ struct SettingsView: View {
                 if viewModel.pemContent.isEmpty {
                     Button("Select PEM File...") { showFilePicker = true }.controlSize(.small)
                 } else {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.statusSuccess).font(.caption)
                     Text("Loaded (\(viewModel.pemContent.count) chars)").font(.caption).foregroundStyle(.secondary)
                     Button("Change...") { showFilePicker = true }.controlSize(.small)
                 }
@@ -324,21 +343,13 @@ struct SettingsView: View {
     private var statusIndicator: some View {
         if let status = viewModel.testStatus {
             switch status {
-            case .success:
-                Label("Connected", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green).font(.caption)
-            case .error(let msg):
-                Label(msg, systemImage: "xmark.circle.fill")
-                    .foregroundStyle(.red).font(.caption).lineLimit(1)
+            case .success: InlineHint(.success, "Connected")
+            case .error(let msg): InlineHint(.danger, msg).lineLimit(1)
             }
         } else if let status = viewModel.saveStatus {
             switch status {
-            case .success:
-                Label("Saved", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green).font(.caption)
-            case .error(let msg):
-                Label(msg, systemImage: "xmark.circle.fill")
-                    .foregroundStyle(.red).font(.caption).lineLimit(1)
+            case .success: InlineHint(.success, "Saved")
+            case .error(let msg): InlineHint(.danger, msg).lineLimit(1)
             }
         }
     }
@@ -389,7 +400,7 @@ struct SettingsView: View {
                     Text("Vancouver, BC, Canada")
                         .font(.caption).foregroundStyle(.secondary)
                     Text("Managing a fleet of 1000+ computers. Focused on infrastructure, DevOps architecture, CI/CD pipelines, and automating at scale.")
-                        .font(.caption).foregroundStyle(.tertiary)
+                        .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 12) {
                         linkRow("GitHub", "github.com/rodchristiansen", "https://github.com/rodchristiansen")

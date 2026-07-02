@@ -84,7 +84,7 @@ struct DeviceTable: View {
         TableColumn("Status", value: \.sortStatus) { (d: DeviceAttributes) in
             StatusBadge(status: d.status ?? "")
         }
-        .width(min: 80, ideal: 100)
+        .width(min: 100, ideal: 130)
     }
 
     @TableColumnBuilder<DeviceAttributes, KeyPathComparator<DeviceAttributes>>

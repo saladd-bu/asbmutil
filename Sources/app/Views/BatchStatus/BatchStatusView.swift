@@ -24,7 +24,6 @@ struct BatchStatusView: View {
                         if viewModel.isPolling {
                             Button("Stop Polling") { viewModel.stopPolling() }
                                 .buttonStyle(.bordered)
-                                .tint(.red)
                         } else {
                             Button("Start Polling") {
                                 Task { await startPolling() }
@@ -62,9 +61,7 @@ struct BatchStatusView: View {
             }
 
             if let error = viewModel.errorMessage {
-                Label(error, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red)
-                    .font(.caption)
+                InlineHint(.danger, error)
                     .padding(.horizontal)
             }
 
