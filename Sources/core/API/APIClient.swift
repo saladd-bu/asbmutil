@@ -230,6 +230,43 @@ public actor APIClient {
         return out
     }
 
+    /// Streaming counterpart to `listDevices`: invokes `onPage` after each page as it
+    /// arrives instead of buffering the whole result, so a UI can render incrementally
+    /// on very large accounts. Accepts a `startCursor` so a paused pull can resume from
+    /// where it stopped without re-fetching earlier pages.
+    ///
+    /// `onPage` receives the page's devices, the cursor for the *next* page (nil once the
+    /// final page has been fetched), the running total across this run, and the 1-based
+    /// page index. The caller should persist `nextCursor` if it wants to resume later.
+    ///
+    /// Cancellation is honored between pages: cancelling the enclosing task stops the loop
+    /// promptly, and the last `nextCursor` handed to `onPage` is a safe resume point (a page
+    /// cancelled mid-flight is never delivered, so resuming re-fetches only that page).
+    public func streamDevices(
+        startCursor: String? = nil,
+        devicesPerPage: Int? = nil,
+        onPage: @Sendable (_ page: [DeviceAttributes], _ nextCursor: String?, _ totalSoFar: Int, _ pageIndex: Int) async -> Void
+    ) async throws {
+        var cursor: String? = startCursor
+        var total = 0
+        var pageIndex = 0
+
+        repeat {
+            try Task.checkCancellation()
+            let r = try await fetchOrgDevicesPage(cursor: cursor, devicesPerPage: devicesPerPage)
+            let attrs = r.data.map(\.attributes)
+            total += attrs.count
+            pageIndex += 1
+            cursor = r.meta?.paging.nextCursor
+            await onPage(attrs, cursor, total, pageIndex)
+
+            // Respectful inter-page delay, matching listDevices.
+            if cursor != nil {
+                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+            }
+        } while cursor != nil
+    }
+
     // MARK: - Pre-flight Device Verification
 
     /// Check whether a single device exists in the org via `GET /v1/orgDevices/{serial}`.

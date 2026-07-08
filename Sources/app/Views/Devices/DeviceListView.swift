@@ -43,9 +43,7 @@ struct DeviceListView: View {
                 showingInspector = !newValue.isEmpty
             }
             .task {
-                if appViewModel.devices.isEmpty && !appViewModel.isLoadingDevices {
-                    await appViewModel.loadDevices()
-                }
+                appViewModel.startLoadIfNeeded()
             }
     }
 
@@ -60,7 +58,7 @@ struct DeviceListView: View {
             ContentUnavailableView {
                 Label("Error", systemImage: "exclamationmark.triangle")
             } description: { Text(error) } actions: {
-                Button("Retry") { Task { await appViewModel.refreshDevices() } }
+                Button("Retry") { appViewModel.refreshDevices() }
             }
         } else if appViewModel.devices.isEmpty {
             ContentUnavailableView("No Devices", systemImage: "desktopcomputer")
@@ -105,6 +103,8 @@ struct DeviceListView: View {
     @ToolbarContentBuilder
     private var trailingToolbar: some ToolbarContent {
         ToolbarItemGroup {
+            LoadStatusIndicator()
+
             if filters.hasActiveFilters {
                 Button { filters.clearAll() } label: {
                     Label("Clear Filters", systemImage: "xmark.circle")
@@ -135,11 +135,11 @@ struct DeviceListView: View {
             .disabled(displayedDevices.isEmpty)
 
             Button {
-                Task { await appViewModel.refreshDevices() }
+                appViewModel.refreshDevices()
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
-            .disabled(appViewModel.isLoadingDevices)
+            .disabled(appViewModel.deviceLoadState == .loading)
             .keyboardShortcut("r", modifiers: .command)
         }
     }
