@@ -567,42 +567,25 @@ struct ListDevicesServers: AsyncParsableCommand {
             throw ValidationError("No serial numbers provided")
         }
 
-        let serialSet = Set(serialNumbers.map { $0.uppercased() })
+        // Query each serial's assigned server directly rather than enumerating every MDM
+        // server's full device list — O(serials) instead of O(all devices in the org).
+        let output = try await client.lookupAssignedMdm(serials: serialNumbers)
 
-        let servers = try await client.listMdmServers()
-        FileHandle.standardError.write(Data("Fetched \(servers.count) MDM servers\n".utf8))
-
-        var assignments: [String: AssignedMdmInfo] = [:]
-        for server in servers {
-            let deviceSerials = try await client.listMdmServerDevices(serverId: server.id)
-            FileHandle.standardError.write(
-                Data("  \(server.serverName ?? server.id): \(deviceSerials.count) devices\n".utf8)
-            )
-            for serial in deviceSerials {
-                let upper = serial.uppercased()
-                if serialSet.contains(upper) {
-                    assignments[upper] = AssignedMdmInfo(
-                        id: server.id,
-                        serverName: server.serverName,
-                        serverType: server.serverType
-                    )
-                }
-            }
-        }
-
-        let output = serialNumbers.map { serial in
-            DeviceMdmResult(
-                serialNumber: serial,
-                assignedMdm: assignments[serial.uppercased()]
-            )
-        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         print(String(decoding: try encoder.encode(output), as: UTF8.self))
 
-        let assigned = assignments.count
-        let total = serialSet.count
-        FileHandle.standardError.write(Data("Done: \(assigned)/\(total) devices have MDM assignments\n".utf8))
+        var counts: [DeviceLookupStatus: Int] = [:]
+        for result in output {
+            counts[result.status, default: 0] += 1
+        }
+        let assigned = counts[.assigned, default: 0]
+        let notAssigned = counts[.notAssigned, default: 0]
+        let notFound = counts[.notFound, default: 0]
+        let errored = counts[.error, default: 0]
+        let summary = "Done: \(assigned)/\(output.count) devices have MDM assignments "
+            + "(\(notAssigned) not assigned, \(notFound) not found, \(errored) errored)\n"
+        FileHandle.standardError.write(Data(summary.utf8))
     }
 }
 

@@ -62,8 +62,9 @@ struct DeviceLookupView: View {
                     }.width(min: 110, ideal: 140)
 
                     TableColumn("Server") { (r: DeviceMdmResult) in
-                        Text(r.assignedMdm?.serverName ?? "Not assigned")
-                            .foregroundStyle(r.assignedMdm != nil ? .primary : .secondary)
+                        Text(serverLabel(for: r))
+                            .foregroundStyle(serverLabelColor(for: r))
+                            .help(r.errorMessage ?? "")
                     }.width(min: 100, ideal: 160)
 
                     TableColumn("Type") { (r: DeviceMdmResult) in
@@ -97,6 +98,24 @@ struct DeviceLookupView: View {
             await viewModel.lookup(client: client)
         } catch {
             viewModel.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func serverLabel(for r: DeviceMdmResult) -> String {
+        switch r.status {
+        case .assigned: return r.assignedMdm?.serverName ?? r.assignedMdm?.id ?? "Assigned"
+        case .notAssigned: return "Not assigned"
+        case .notFound: return "Not found"
+        case .error: return "Error"
+        }
+    }
+
+    private func serverLabelColor(for r: DeviceMdmResult) -> Color {
+        switch r.status {
+        case .assigned: return .primary
+        case .notAssigned: return .secondary
+        case .notFound: return .secondary
+        case .error: return .red
         }
     }
 }

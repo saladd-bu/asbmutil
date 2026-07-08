@@ -401,13 +401,35 @@ public struct ActivitySummary: Codable, Sendable, Identifiable {
 
 // MARK: - Device MDM Result (for lookup operations)
 
+/// Per-serial outcome of an MDM-assignment lookup.
+///
+/// `notFound` means Apple returned 404 for the serial (not in the org); `notAssigned` means the
+/// device exists but has no MDM server assignment. Distinguishing the two is only possible when
+/// each serial is queried directly (see `APIClient.lookupAssignedMdm`).
+public enum DeviceLookupStatus: String, Codable, Sendable {
+    case assigned
+    case notAssigned
+    case notFound
+    case error
+}
+
 public struct DeviceMdmResult: Codable, Sendable, Identifiable {
     public var id: String { serialNumber }
     public let serialNumber: String
     public let assignedMdm: AssignedMdmInfo?
+    public let status: DeviceLookupStatus
+    /// Populated only when `status == .error`.
+    public let errorMessage: String?
 
-    public init(serialNumber: String, assignedMdm: AssignedMdmInfo?) {
+    public init(
+        serialNumber: String,
+        assignedMdm: AssignedMdmInfo?,
+        status: DeviceLookupStatus,
+        errorMessage: String? = nil
+    ) {
         self.serialNumber = serialNumber
         self.assignedMdm = assignedMdm
+        self.status = status
+        self.errorMessage = errorMessage
     }
 }

@@ -698,6 +698,216 @@ public actor APIClient {
         )
     }
 
+    /// Per-serial probe of `get-orgdevice-information` (`GET /v1/orgDevices/{serial}`) that reads
+    /// the device's own `status`, which Apple documents as `ASSIGNED` or `UNASSIGNED`.
+    ///
+    /// Uses `performRequestWithRetry` directly (like `deviceExists`) rather than `send()` so an
+    /// expected 404 is observable and silent. A 404 on the device resource is unambiguous: the
+    /// serial isn't in the org. This is the authoritative signal for assignment state — Apple's
+    /// docs say "If ASSIGNED, use a separate API to get the information of the assigned server",
+    /// so callers resolve the server id via `probeAssignedServer` only when this returns `.assigned`.
+    private enum DeviceStatusProbe: Sendable {
+        case assigned
+        case unassigned
+        case notFound
+    }
+
+    /// Build an absolute `/v1/orgDevices/{serial}{suffix}` URL with the serial percent-encoded as a
+    /// single path segment. Throws (rather than force-unwrapping) so a serial with URL-significant
+    /// characters — a stray `#`, `?`, space, or `/` from a hand-typed field or CSV cell — surfaces
+    /// as a per-serial error instead of silently querying the wrong device or trapping the process.
+    private func orgDeviceURL(serialNumber: String, suffix: String = "") throws -> URL {
+        // urlPathAllowed keeps `/` legal; drop it so a serial can never inject extra path segments.
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
+        let encoded = serialNumber.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        guard !encoded.isEmpty,
+              let url = URL(string: "/v1/orgDevices/\(encoded)\(suffix)", relativeTo: Endpoints.base(for: creds.scope))
+        else {
+            throw RuntimeError("Invalid device serial '\(serialNumber)'")
+        }
+        return url
+    }
+
+    private func probeDeviceStatus(serialNumber: String) async throws -> DeviceStatusProbe {
+        try await ensureValidToken()
+
+        let url = try orgDeviceURL(serialNumber: serialNumber)
+        var urlReq = URLRequest(url: url)
+        urlReq.httpMethod = HTTPMethod.GET.rawValue
+        urlReq.setValue("Bearer \(token.access_token)", forHTTPHeaderField: "Authorization")
+        urlReq.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, http) = try await performRequestWithRetry(urlReq)
+        switch http.statusCode {
+        case 200:
+            struct DeviceStatusResponse: Decodable {
+                struct Data: Decodable {
+                    struct Attributes: Decodable { let status: String? }
+                    let attributes: Attributes
+                }
+                let data: Data
+            }
+            let decoded = try JSONDecoder().decode(DeviceStatusResponse.self, from: data)
+            // Apple documents status as ASSIGNED | UNASSIGNED; anything not ASSIGNED is unassigned.
+            return decoded.data.attributes.status?.uppercased() == "ASSIGNED" ? .assigned : .unassigned
+        case 404:
+            return .notFound
+        default:
+            throw RuntimeError("HTTP error \(http.statusCode) while looking up device \(serialNumber)")
+        }
+    }
+
+    /// Per-serial probe of the `assignedServer` relationship, returning the assigned MDM server id.
+    ///
+    /// Only meaningful for devices already known to be `ASSIGNED` (see `probeDeviceStatus`): Apple
+    /// returns 404 on this relationship endpoint when a device has no assigned server, so a
+    /// non-`.assigned` result here for an assigned device is anomalous. Uses `performRequestWithRetry`
+    /// directly so the expected-404 case stays silent.
+    private enum AssignedServerProbe: Sendable {
+        case assigned(id: String)
+        case unassignedOrMissing
+    }
+
+    private func probeAssignedServer(serialNumber: String) async throws -> AssignedServerProbe {
+        try await ensureValidToken()
+
+        let url = try orgDeviceURL(serialNumber: serialNumber, suffix: "/relationships/assignedServer")
+        var urlReq = URLRequest(url: url)
+        urlReq.httpMethod = HTTPMethod.GET.rawValue
+        urlReq.setValue("Bearer \(token.access_token)", forHTTPHeaderField: "Authorization")
+        urlReq.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, http) = try await performRequestWithRetry(urlReq)
+        switch http.statusCode {
+        case 200:
+            let decoded = try JSONDecoder().decode(AssignedServerResponse.self, from: data)
+            if let id = decoded.data?.id {
+                return .assigned(id: id)
+            }
+            return .unassignedOrMissing
+        case 404:
+            return .unassignedOrMissing
+        default:
+            throw RuntimeError("HTTP error \(http.statusCode) while looking up assigned server for \(serialNumber)")
+        }
+    }
+
+    /// Resolve MDM assignment for a batch of serials by querying each device directly, instead of
+    /// enumerating every MDM server's full device list.
+    ///
+    /// This is O(number of serials) rather than O(all devices in the org). Each serial is first
+    /// looked up via `get-orgdevice-information` (`GET /v1/orgDevices/{serial}`), whose `status`
+    /// (`ASSIGNED`/`UNASSIGNED`) is the authoritative signal: a 404 there means the serial isn't in
+    /// the org (`.notFound`); `UNASSIGNED` is `.notAssigned` and needs no further call; only for
+    /// `ASSIGNED` devices do we make the second call to the `assignedServer` relationship for the
+    /// server id — exactly as Apple's docs prescribe ("If ASSIGNED, use a separate API to get the
+    /// assigned server"). Server names/types come from a single `listMdmServers()` call. A
+    /// per-serial failure lands in `.error` without aborting the batch.
+    ///
+    /// Lookups fan out with bounded concurrency (default 4) matching `verifyDevices` /
+    /// `confirmAssignment` — Apple multiplexes over a single HTTP/2 connection per host and drops
+    /// streams above ~4. Distinct serials are probed once; input order and any duplicates are
+    /// preserved in the returned array.
+    public func lookupAssignedMdm(serials: [String], concurrency: Int = 4) async throws -> [DeviceMdmResult] {
+        guard !serials.isEmpty else { return [] }
+
+        let servers = try await listMdmServers()
+        let serverMap = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
+        let cap = max(1, min(concurrency, 32))
+
+        // Probe each distinct serial once; two concurrent probes of the same serial would
+        // otherwise race in `resultBySerial`. Output still walks the original `serials`.
+        var uniqueSerials: [String] = []
+        var seen = Set<String>()
+        for serial in serials where seen.insert(serial).inserted {
+            uniqueSerials.append(serial)
+        }
+        let total = uniqueSerials.count
+
+        enum Outcome: Sendable {
+            case assigned(id: String)
+            case notAssigned
+            case notFound
+            case errored(String)
+        }
+
+        var outcomeBySerial: [String: Outcome] = [:]
+
+        await withTaskGroup(of: (String, Outcome).self) { group in
+            var index = 0
+
+            func enqueue(_ serial: String) {
+                group.addTask { [self] in
+                    // Apple stores serials uppercase and its path lookups are case-sensitive; match
+                    // case-insensitively (as the old server-enumeration code did) by querying the
+                    // uppercased form while still reporting the caller's original spelling.
+                    let normalized = serial.uppercased()
+                    do {
+                        switch try await self.probeDeviceStatus(serialNumber: normalized) {
+                        case .notFound:
+                            return (serial, .notFound)
+                        case .unassigned:
+                            // Device exists but reports UNASSIGNED — authoritative, no need to
+                            // touch the relationship endpoint.
+                            return (serial, .notAssigned)
+                        case .assigned:
+                            // Only ASSIGNED devices need the server id (Apple: "use a separate API
+                            // to get the assigned server").
+                            switch try await self.probeAssignedServer(serialNumber: normalized) {
+                            case .assigned(let id):
+                                return (serial, .assigned(id: id))
+                            case .unassignedOrMissing:
+                                // status said ASSIGNED but the relationship has no server yet.
+                                // Assignment propagation is eventually consistent, so the two
+                                // endpoints can briefly disagree — report not-assigned rather than
+                                // a hard error the user would see as a red "Error" row.
+                                return (serial, .notAssigned)
+                            }
+                        }
+                    } catch {
+                        return (serial, .errored(error.localizedDescription))
+                    }
+                }
+            }
+
+            while index < cap && index < total {
+                enqueue(uniqueSerials[index])
+                index += 1
+            }
+            while let (serial, outcome) = await group.next() {
+                outcomeBySerial[serial] = outcome
+                if index < total {
+                    enqueue(uniqueSerials[index])
+                    index += 1
+                }
+            }
+        }
+
+        return serials.map { serial in
+            switch outcomeBySerial[serial] {
+            case .assigned(let id):
+                let server = serverMap[id]
+                return DeviceMdmResult(
+                    serialNumber: serial,
+                    assignedMdm: AssignedMdmInfo(
+                        id: id,
+                        serverName: server?.serverName,
+                        serverType: server?.serverType
+                    ),
+                    status: .assigned
+                )
+            case .notAssigned:
+                return DeviceMdmResult(serialNumber: serial, assignedMdm: nil, status: .notAssigned)
+            case .notFound:
+                return DeviceMdmResult(serialNumber: serial, assignedMdm: nil, status: .notFound)
+            case .errored(let message):
+                return DeviceMdmResult(serialNumber: serial, assignedMdm: nil, status: .error, errorMessage: message)
+            case nil:
+                return DeviceMdmResult(serialNumber: serial, assignedMdm: nil, status: .error, errorMessage: "no result")
+            }
+        }
+    }
+
     public func getAssignedMdm(deviceId: String) async throws -> EnhancedAssignedServerResponse {
         let response = try await getAssignedMdmRaw(deviceId: deviceId)
 
@@ -759,19 +969,24 @@ public actor APIClient {
             // Device may not have AppleCare -- that's fine
         }
 
-        // Fetch assigned MDM server (non-fatal if it fails)
+        // Fetch assigned MDM server (non-fatal if it fails). Only ASSIGNED devices have one, and
+        // Apple returns 404 on the relationship endpoint otherwise — so gate on the status we
+        // already fetched above rather than issuing a call that's guaranteed to fail for
+        // UNASSIGNED devices (which would surface as a spurious "HTTP 404" diagnostic).
         var mdmInfo: AssignedMdmInfo? = nil
-        do {
-            let mdmResponse = try await getAssignedMdm(deviceId: serialNumber)
-            if let data = mdmResponse.data {
-                mdmInfo = AssignedMdmInfo(
-                    id: data.id,
-                    serverName: data.serverName,
-                    serverType: data.serverType
-                )
+        if response.data.attributes.status?.uppercased() == "ASSIGNED" {
+            do {
+                let mdmResponse = try await getAssignedMdm(deviceId: serialNumber)
+                if let data = mdmResponse.data {
+                    mdmInfo = AssignedMdmInfo(
+                        id: data.id,
+                        serverName: data.serverName,
+                        serverType: data.serverType
+                    )
+                }
+            } catch {
+                // Assigned-server lookup failed (network/auth) -- leave assignment unknown
             }
-        } catch {
-            // Device may not be assigned -- that's fine
         }
 
         return DeviceInfo(

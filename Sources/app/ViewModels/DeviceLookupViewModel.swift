@@ -33,30 +33,7 @@ final class DeviceLookupViewModel {
         results.removeAll()
 
         do {
-            let serialSet = Set(serials.map { $0.uppercased() })
-            let servers = try await client.listMdmServers()
-
-            var assignments: [String: AssignedMdmInfo] = [:]
-            for server in servers {
-                let deviceSerials = try await client.listMdmServerDevices(serverId: server.id)
-                for serial in deviceSerials {
-                    let upper = serial.uppercased()
-                    if serialSet.contains(upper) {
-                        assignments[upper] = AssignedMdmInfo(
-                            id: server.id,
-                            serverName: server.serverName,
-                            serverType: server.serverType
-                        )
-                    }
-                }
-            }
-
-            results = serials.map { serial in
-                DeviceMdmResult(
-                    serialNumber: serial,
-                    assignedMdm: assignments[serial.uppercased()]
-                )
-            }
+            results = try await client.lookupAssignedMdm(serials: serials)
         } catch {
             errorMessage = error.localizedDescription
         }
