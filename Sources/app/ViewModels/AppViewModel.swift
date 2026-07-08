@@ -269,7 +269,7 @@ final class AppViewModel {
                 }
                 return out
             }
-            await self?.applyServerCounts(counts)
+            self?.applyServerCounts(counts)
         }
     }
 
