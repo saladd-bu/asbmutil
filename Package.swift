@@ -37,7 +37,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ASBMUtilAppTests",
-            dependencies: ["ASBMUtilApp"],
+            dependencies: ["ASBMUtilApp", "ASBMUtilCore"],
             path: "Tests/ASBMUtilAppTests"
         ),
     ],

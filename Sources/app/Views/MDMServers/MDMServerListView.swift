@@ -11,17 +11,34 @@ struct MDMServerListView: View {
         viewModel.servers.first { $0.id == selectedServerID }
     }
 
+    private var navigationTitle: String {
+        // Avoid "Servers (0)" while loading or after an error — the count isn't known yet.
+        if viewModel.isLoading || viewModel.errorMessage != nil { return "Servers" }
+        return "Servers (\(viewModel.servers.count))"
+    }
+
     var body: some View {
         mainContent
-            .navigationTitle("Servers (\(viewModel.servers.count))")
+            .navigationTitle(navigationTitle)
             .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingDetail.toggle()
+                    } label: {
+                        Label("Details", systemImage: "sidebar.trailing")
+                    }
+                    .help("Show or hide the server details")
+                    .disabled(selectedServerID == nil)
+                }
                 ToolbarItem {
                     Button {
                         Task { await loadServers() }
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
+                    .help("Reload the server list")
                     .disabled(viewModel.isLoading)
+                    .keyboardShortcut("r", modifiers: .command)
                 }
             }
             .inspector(isPresented: $showingDetail) {

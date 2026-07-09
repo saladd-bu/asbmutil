@@ -36,28 +36,24 @@ enum StatusKind: CaseIterable {
         }
     }
 
-    /// Native system accent color for this bucket (adapts to appearance).
-    var color: Color {
+    /// The shared severity this bucket resolves to for color + symbol, so a status
+    /// renders identically to the same severity in an `InlineHint`/`Callout`.
+    var severity: Severity {
         switch self {
-        case .success: return .green
-        case .warning: return .orange
-        case .failure: return .red
-        case .timeout: return .purple
-        case .neutral: return .secondary
+        case .success: return .success
+        case .warning: return .warning
+        case .failure: return .failure
+        case .timeout: return .timeout
+        case .neutral: return .neutral
         }
     }
 
+    /// Native system accent color for this bucket (adapts to appearance).
+    var color: Color { severity.color }
+
     /// SF Symbol paired with the color so status is distinguishable without
     /// relying on hue (WCAG 1.4.1 Use of Color).
-    var symbol: String {
-        switch self {
-        case .success: return "checkmark.circle.fill"
-        case .warning: return "exclamationmark.circle.fill"
-        case .failure: return "xmark.octagon.fill"
-        case .timeout: return "clock.badge.exclamationmark.fill"
-        case .neutral: return "circle.fill"
-        }
-    }
+    var symbol: String { severity.symbol }
 }
 
 // MARK: - Semantic colors

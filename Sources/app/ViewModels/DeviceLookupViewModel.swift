@@ -14,10 +14,7 @@ final class DeviceLookupViewModel {
         if !importedSerials.isEmpty {
             return importedSerials
         }
-        return serialInput
-            .split(separator: ",")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        return CSVParser.parseSerialTokens(serialInput)
     }
 
     var assignedCount: Int {
@@ -41,17 +38,20 @@ final class DeviceLookupViewModel {
         isLoading = false
     }
 
-    func importCSV(from url: URL) {
+    /// Parse a CSV without committing it, for a preview step. Returns nil (and sets
+    /// `errorMessage`) if the file can't be read or contains no serials.
+    func readCSV(from url: URL) -> [String]? {
         guard url.startAccessingSecurityScopedResource() else {
             errorMessage = "Cannot access file"
-            return
+            return nil
         }
         defer { url.stopAccessingSecurityScopedResource() }
 
         do {
-            importedSerials = try CSVParser.readSerials(from: url)
+            return try CSVParser.readSerials(from: url)
         } catch {
             errorMessage = "CSV import failed: \(error.localizedDescription)"
+            return nil
         }
     }
 

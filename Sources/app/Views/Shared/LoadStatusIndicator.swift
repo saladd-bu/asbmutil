@@ -12,7 +12,7 @@ struct LoadStatusIndicator: View {
     var body: some View {
         switch appViewModel.deviceLoadState {
         case .loading:
-            HStack(spacing: 8) {
+            pill {
                 ProgressView().controlSize(.small)
                 Text("Loaded \(appViewModel.devices.count) devices…")
                     .font(.callout)
@@ -30,7 +30,7 @@ struct LoadStatusIndicator: View {
             .accessibilityValue("\(appViewModel.devices.count) loaded")
 
         case .paused:
-            HStack(spacing: 8) {
+            pill {
                 Text("Paused · \(appViewModel.devices.count) loaded")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -49,5 +49,15 @@ struct LoadStatusIndicator: View {
         case .idle, .complete, .failed:
             EmptyView()
         }
+    }
+
+    /// Insets the indicator's content so the text and controls aren't cramped against
+    /// the edges of the toolbar's own item background. No extra background/capsule here —
+    /// the toolbar already draws one, and layering a second cast a visible shadow.
+    private func pill<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: Spacing.sm) {
+            content()
+        }
+        .padding(.horizontal, Spacing.sm)
     }
 }

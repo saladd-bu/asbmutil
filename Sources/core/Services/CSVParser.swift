@@ -36,4 +36,17 @@ public enum CSVParser {
 
         return serials
     }
+
+    /// Parse serial numbers from free-form user input — the text a person types or
+    /// pastes into a field. Splits on commas **and** any whitespace/newlines, drops
+    /// empty tokens, and preserves input order. This is what the GUI fields and the
+    /// CLI `--serials` option use so comma-, space-, and newline-separated lists are all
+    /// accepted uniformly. (Distinct from `parseSerials`, which reads the first column
+    /// of CSV rows.)
+    public static func parseSerialTokens(_ text: String) -> [String] {
+        text
+            .split(whereSeparator: { $0 == "," || $0.isWhitespace })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+    }
 }

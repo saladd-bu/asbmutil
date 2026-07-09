@@ -364,6 +364,10 @@ public actor APIClient {
         return DeviceVerification(found: found, notFound: notFound, errored: errored)
     }
 
+    /// Create a device activity (assign or unassign) targeting `serviceId`. Apple
+    /// requires the `mdmServer` relationship on both activity types (a server-less
+    /// unassign is rejected with 409 ENTITY_ERROR.RELATIONSHIP.REQUIRED), so for
+    /// "unassign from wherever it is" use `unassignFromCurrentServer(serials:)`.
     public func createDeviceActivity(activityType: String, serials: [String], serviceId: String) async throws -> ActivityDetails {
         struct ActivityResponse: Decodable {
             let data: ActivityData
@@ -392,10 +396,7 @@ public actor APIClient {
                 ],
                 "relationships": [
                     "mdmServer": [
-                        "data": [
-                            "type": "mdmServers",
-                            "id": serviceId
-                        ]
+                        "data": ["type": "mdmServers", "id": serviceId]
                     ],
                     "devices": [
                         "data": devices
@@ -414,9 +415,8 @@ public actor APIClient {
             )
         )
 
-        // Get server details for enhanced response
-        let servers = try await listMdmServers()
-        let serverDetails = servers.first { $0.id == serviceId }
+        // Resolve server name/type for the enhanced response.
+        let serverDetails = try await listMdmServers().first { $0.id == serviceId }
 
         return ActivityDetails(
             id: response.data.id,
@@ -429,6 +429,56 @@ public actor APIClient {
             mdmServerName: serverDetails?.serverName,
             mdmServerType: serverDetails?.serverType,
             mdmServerId: serviceId
+        )
+    }
+
+    /// Unassign each serial from whichever server it's currently on, without the caller
+    /// naming a server. Apple requires an `mdmServer` target on UNASSIGN, so this looks
+    /// up each device's current assignment (`lookupAssignedMdm`), groups the serials by
+    /// server, and submits one UNASSIGN_DEVICES activity per server. Serials that aren't
+    /// currently assigned (or can't be read) are reported rather than submitted.
+    public func unassignFromCurrentServer(serials: [String]) async throws -> UnassignOutcome {
+        let lookups = try await lookupAssignedMdm(serials: serials)
+
+        var serversInOrder: [String] = []
+        var byServer: [String: [String]] = [:]
+        var alreadyUnassigned: [String] = []
+        var notFound: [String] = []
+        var errored: [(serial: String, message: String)] = []
+
+        for r in lookups {
+            switch r.status {
+            case .assigned:
+                if let serverId = r.assignedMdm?.id {
+                    if byServer[serverId] == nil { serversInOrder.append(serverId) }
+                    byServer[serverId, default: []].append(r.serialNumber)
+                } else {
+                    alreadyUnassigned.append(r.serialNumber)
+                }
+            case .notAssigned:
+                alreadyUnassigned.append(r.serialNumber)
+            case .notFound:
+                notFound.append(r.serialNumber)
+            case .error:
+                errored.append((r.serialNumber, r.errorMessage ?? "lookup failed"))
+            }
+        }
+
+        var activities: [ActivityDetails] = []
+        for serverId in serversInOrder {
+            let activity = try await createDeviceActivity(
+                activityType: "UNASSIGN_DEVICES",
+                serials: byServer[serverId] ?? [],
+                serviceId: serverId
+            )
+            activities.append(activity)
+        }
+
+        return UnassignOutcome(
+            activities: activities,
+            alreadyUnassigned: alreadyUnassigned,
+            notFound: notFound,
+            errored: errored
         )
     }
 
@@ -524,7 +574,7 @@ public actor APIClient {
     /// A device activity is in a terminal state once Apple stops processing it.
     public static func isTerminalActivityStatus(_ status: String) -> Bool {
         switch status.uppercased() {
-        case "COMPLETE", "COMPLETED", "FAILED", "ERROR", "STOPPED":
+        case "COMPLETE", "COMPLETED", "FAILED", "ERROR", "STOPPED", "EXPIRED", "CANCELED":
             return true
         default:
             return false
@@ -621,6 +671,7 @@ public actor APIClient {
                 switch expected {
                 case .assigned(let serverId): matches = (current == serverId)
                 case .unassigned(let serverId): matches = (current != serverId)
+                case .unassignedAny: matches = (current == nil)
                 }
                 if matches {
                     asExpected.append(serial)

@@ -51,6 +51,7 @@ struct DashboardView: View {
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
+                .help("Reload devices")
                 .disabled(appViewModel.deviceLoadState == .loading)
                 .keyboardShortcut("r", modifiers: .command)
             }
@@ -61,9 +62,9 @@ struct DashboardView: View {
     }
 
     private var loadingPlaceholder: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: Spacing.md) {
             ProgressView()
-            Text("Loading data...").foregroundStyle(.secondary).font(.callout)
+            Text("Loading devices…").foregroundStyle(.secondary).font(.callout)
         }
         .frame(maxWidth: .infinity, minHeight: 300)
     }
@@ -73,7 +74,10 @@ struct DashboardView: View {
     private var statStrip: some View {
         let s = stats
         let assignedPct = s.total == 0 ? 0 : Int(round(Double(s.assigned) / Double(s.total) * 100))
-        return HStack(spacing: 12) {
+        // Adaptive grid so tiles wrap onto a second row at narrow widths instead of
+        // squishing each number into a vertical stack of digits.
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: Spacing.md)],
+                         spacing: Spacing.md) {
             StatTile(label: "Total Devices", value: "\(s.total)",
                      accent: .blue, systemImage: "desktopcomputer")
             StatTile(label: "Assigned", value: "\(s.assigned)",
@@ -346,10 +350,13 @@ struct StatTile: View {
                 .shadow(color: accent.opacity(0.35), radius: 4, x: 0, y: 2)
             VStack(alignment: .leading, spacing: 2) {
                 Text(label).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.8)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(value).font(.title3).fontWeight(.semibold).monospacedDigit()
+                        .lineLimit(1).minimumScaleFactor(0.6)
                     if let secondary {
                         Text(secondary).font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
             }
@@ -374,7 +381,7 @@ struct DashboardCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
+                SectionHeader(title)
                 if let subtitle {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
                 }
@@ -429,5 +436,9 @@ struct FilterRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue("\(count) of \(total)")
+        .accessibilityAddTraits(.isButton)
     }
 }

@@ -313,8 +313,11 @@ public struct DeviceVerification: Sendable {
 public enum AssignmentExpectation: Sendable {
     /// Device should now report this server as its assigned MDM (after an assign).
     case assigned(serverId: String)
-    /// Device should no longer be on this server (after an unassign).
+    /// Device should no longer be on this server (after an unassign). It may be
+    /// unassigned entirely or moved elsewhere.
     case unassigned(serverId: String)
+    /// Device should no longer be assigned to any server (after a server-less unassign).
+    case unassignedAny
 }
 
 /// Outcome of re-querying each serial's assigned MDM after an activity reached a terminal state.
@@ -346,9 +349,11 @@ public struct ActivityDetails: Codable, Sendable, Identifiable {
     public let deviceSerials: [String]
     public let mdmServerName: String?
     public let mdmServerType: String?
-    public let mdmServerId: String
+    /// The target MDM server id, or nil for a server-less unassign (no `mdmServer`
+    /// relationship was sent).
+    public let mdmServerId: String?
 
-    public init(id: String, activityType: String, status: String, createdDateTime: String, updatedDateTime: String, deviceCount: Int, deviceSerials: [String], mdmServerName: String?, mdmServerType: String?, mdmServerId: String) {
+    public init(id: String, activityType: String, status: String, createdDateTime: String, updatedDateTime: String, deviceCount: Int, deviceSerials: [String], mdmServerName: String?, mdmServerType: String?, mdmServerId: String?) {
         self.id = id
         self.activityType = activityType
         self.status = status
@@ -360,6 +365,42 @@ public struct ActivityDetails: Codable, Sendable, Identifiable {
         self.mdmServerType = mdmServerType
         self.mdmServerId = mdmServerId
     }
+
+    /// A copy with a new status. `ActivityDetails` is otherwise immutable; this lets a
+    /// caller propagate a polled terminal status (e.g. COMPLETED) back onto the object
+    /// returned at submit time, which carried only the creation status (PENDING).
+    public func withStatus(_ newStatus: String) -> ActivityDetails {
+        ActivityDetails(
+            id: id, activityType: activityType, status: newStatus,
+            createdDateTime: createdDateTime, updatedDateTime: updatedDateTime,
+            deviceCount: deviceCount, deviceSerials: deviceSerials,
+            mdmServerName: mdmServerName, mdmServerType: mdmServerType, mdmServerId: mdmServerId
+        )
+    }
+}
+
+// MARK: - Auto-derived unassign outcome
+
+/// Result of unassigning devices from their current servers without the caller naming
+/// a server. `activities` are the per-server UNASSIGN activities that were submitted;
+/// `alreadyUnassigned` are serials that exist but weren't assigned to any server (so
+/// nothing was submitted for them); `notFound` are serials Apple returned 404 for;
+/// `errored` are serials whose current assignment couldn't be read.
+public struct UnassignOutcome: Sendable {
+    public let activities: [ActivityDetails]
+    public let alreadyUnassigned: [String]
+    public let notFound: [String]
+    public let errored: [(serial: String, message: String)]
+
+    public init(activities: [ActivityDetails], alreadyUnassigned: [String], notFound: [String], errored: [(serial: String, message: String)]) {
+        self.activities = activities
+        self.alreadyUnassigned = alreadyUnassigned
+        self.notFound = notFound
+        self.errored = errored
+    }
+
+    /// Total device serials actually submitted for unassignment across all activities.
+    public var submittedSerials: [String] { activities.flatMap(\.deviceSerials) }
 }
 
 // MARK: - Activity Summary (for listing all activities)

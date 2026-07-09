@@ -35,6 +35,13 @@ final class AppViewModel {
     // Shared device filter state — survives navigation between sections
     let deviceFilters = DeviceFilters()
 
+    // Action-view models are owned here, not as each view's `@State`, so their input
+    // and results survive tab switches. ContentView's `detail:` switch recreates the
+    // detail views on every navigation, which would otherwise discard view-local state.
+    let deviceLookupModel = DeviceLookupViewModel()
+    let assignmentModel = AssignmentViewModel()
+    let batchStatusModel = BatchStatusViewModel()
+
     /// Convenience for views that just want to know whether a load is actively running.
     var isLoadingDevices: Bool { deviceLoadState == .loading }
 

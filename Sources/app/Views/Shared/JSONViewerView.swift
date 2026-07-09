@@ -22,17 +22,20 @@ struct JSONViewerView: View {
         }
     }
 
+    @State private var copied = false
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(title)
-                    .font(.headline)
+                SectionHeader(title, level: .prominent)
                 Spacer()
-                Button("Copy") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(jsonString, forType: .string)
+                if copied {
+                    InlineHint(.success, "Copied")
                 }
-                Button("Close") { dismiss() }
+                Button("Copy") { copy() }
+                    .keyboardShortcut("c", modifiers: .command)
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
             }
             .padding()
 
@@ -46,5 +49,15 @@ struct JSONViewerView: View {
             }
         }
         .frame(minWidth: 500, minHeight: 400)
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(jsonString, forType: .string)
+        copied = true
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            copied = false
+        }
     }
 }

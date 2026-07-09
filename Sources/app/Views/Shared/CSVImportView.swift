@@ -8,13 +8,13 @@ struct CSVImportView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Text("CSV Import Preview")
-                .font(.headline)
+            SectionHeader("CSV Import Preview", level: .prominent)
 
             Text("\(serials.count) serial numbers found")
                 .foregroundStyle(.secondary)
 
-            List(serials, id: \.self) { serial in
+            // Index-based ids so duplicate serials in the file don't collide.
+            List(Array(serials.enumerated()), id: \.offset) { _, serial in
                 Text(serial)
                     .fontDesign(.monospaced)
             }
