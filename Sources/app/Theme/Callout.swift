@@ -10,14 +10,18 @@ enum CalloutKind: CaseIterable {
     case warning
     case danger
 
-    var symbol: String {
+    /// The shared severity this maps to for color + symbol, so a warning/error here
+    /// renders identically to the same status in a `StatusBadge`.
+    var severity: Severity {
         switch self {
-        case .info:    return "info.circle"
-        case .success: return "checkmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .danger:  return "xmark.octagon.fill"
+        case .info:    return .info
+        case .success: return .success
+        case .warning: return .warning
+        case .danger:  return .failure
         }
     }
+
+    var symbol: String { severity.symbol }
 
     /// Spoken severity prefix so VoiceOver conveys severity even though the text
     /// itself is neutral-colored.
@@ -31,14 +35,7 @@ enum CalloutKind: CaseIterable {
     }
 
     /// Native system accent for the icon / fill / border (never the text color).
-    var color: Color {
-        switch self {
-        case .info:    return .blue
-        case .success: return .green
-        case .warning: return .orange
-        case .danger:  return .red
-        }
-    }
+    var color: Color { severity.color }
 }
 
 /// A rounded, tinted callout card: colored icon + optional bold title + message,
@@ -85,10 +82,16 @@ struct Callout: View {
 struct InlineHint: View {
     let kind: CalloutKind
     let text: String
+    /// Whether this hint appears transiently in response to an action ("Saved",
+    /// "Connected"). Live hints get `.updatesFrequently` so VoiceOver announces them;
+    /// pass `false` for persistent text (e.g. a standing error) so it isn't treated as
+    /// a live region and re-announced.
+    var isLive: Bool = true
 
-    init(_ kind: CalloutKind, _ text: String) {
+    init(_ kind: CalloutKind, _ text: String, isLive: Bool = true) {
         self.kind = kind
         self.text = text
+        self.isLive = isLive
     }
 
     var body: some View {
@@ -101,6 +104,6 @@ struct InlineHint: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(kind.accessibilityPrefix): \(text)")
-        .accessibilityAddTraits(.updatesFrequently)
+        .accessibilityAddTraits(isLive ? .updatesFrequently : [])
     }
 }

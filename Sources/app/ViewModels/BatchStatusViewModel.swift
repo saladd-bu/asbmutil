@@ -55,8 +55,7 @@ final class BatchStatusViewModel {
                     status = currentStatus
                     pollLog.append(PollLogEntry(timestamp: Date(), status: currentStatus))
 
-                    if currentStatus == "COMPLETE" || currentStatus == "COMPLETED" ||
-                       currentStatus == "FAILED" || currentStatus == "ERROR" {
+                    if APIClient.isTerminalActivityStatus(currentStatus) {
                         break
                     }
 

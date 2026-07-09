@@ -93,6 +93,7 @@ struct DeviceListView: View {
                       ? "line.3.horizontal.decrease.circle.fill"
                       : "line.3.horizontal.decrease.circle")
             }
+            .help("Filter devices")
             .popover(isPresented: $showFilters) {
                 FilterPanelView(filters: filters)
                     .frame(width: 460, height: 340)
@@ -105,11 +106,13 @@ struct DeviceListView: View {
         ToolbarItemGroup {
             LoadStatusIndicator()
 
-            if filters.hasActiveFilters {
-                Button { filters.clearAll() } label: {
-                    Label("Clear Filters", systemImage: "xmark.circle")
-                }
+            // Kept present (disabled when inactive) rather than inserted/removed, so the
+            // neighboring toolbar items don't shift when filters change.
+            Button { filters.clearAll() } label: {
+                Label("Clear Filters", systemImage: "xmark.circle")
             }
+            .help("Clear all active filters")
+            .disabled(!filters.hasActiveFilters)
 
             Menu {
                 ForEach(ExportFormat.allCases) { fmt in
@@ -132,6 +135,7 @@ struct DeviceListView: View {
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
+            .help("Export or copy the device list")
             .disabled(displayedDevices.isEmpty)
 
             Button {
@@ -139,8 +143,17 @@ struct DeviceListView: View {
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
+            .help("Reload devices")
             .disabled(appViewModel.deviceLoadState == .loading)
             .keyboardShortcut("r", modifiers: .command)
+
+            Button {
+                showingInspector.toggle()
+            } label: {
+                Label("Details", systemImage: "sidebar.trailing")
+            }
+            .help("Show or hide the device details")
+            .disabled(selectedDeviceIDs.isEmpty)
         }
     }
 
@@ -166,6 +179,7 @@ struct DeviceListView: View {
 struct FilterPanelView: View {
     let filters: DeviceFilters
     @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
 
     private var filteredValues: [String] {
         let values = filters.availableValues[filters.selectedCategory] ?? []
@@ -183,7 +197,7 @@ struct FilterPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Filters").font(.headline)
+                SectionHeader("Filters")
                 Spacer()
                 if filters.hasActiveFilters {
                     Button("Clear All") { filters.clearAll() }
@@ -204,6 +218,7 @@ struct FilterPanelView: View {
                         } label: {
                             HStack {
                                 Text(cat.rawValue).font(.subheadline)
+                                    .fontWeight(filters.isActive(cat) ? .semibold : .regular)
                                 Spacer()
                                 if filters.isActive(cat) {
                                     Circle().fill(.blue).frame(width: 6, height: 6)
@@ -232,8 +247,10 @@ struct FilterPanelView: View {
                         TextField("Search", text: $searchText)
                             .textFieldStyle(.plain)
                             .font(.subheadline)
+                            .focused($searchFocused)
                     }
                     .padding(.horizontal, 8).padding(.vertical, 6)
+                    .onAppear { searchFocused = true }
 
                     Divider()
 
@@ -285,8 +302,7 @@ struct InlineAssignView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 // Header
-                Text("\(serials.count) Devices Selected")
-                    .font(.title3).fontWeight(.semibold)
+                SectionHeader("\(serials.count) Devices Selected", level: .prominent)
 
                 // Serials preview
                 VStack(alignment: .leading, spacing: 2) {
@@ -309,15 +325,20 @@ struct InlineAssignView: View {
                 }
                 .pickerStyle(.segmented)
 
-                if servers.isEmpty {
-                    ProgressView("Loading servers...").controlSize(.small)
-                } else {
-                    Picker("Server", selection: $selectedServerName) {
-                        Text("Select a server...").tag("")
-                        ForEach(servers, id: \.id) { s in
-                            Text(s.serverName ?? s.id).tag(s.serverName ?? "")
+                if mode == .assign {
+                    if servers.isEmpty {
+                        ProgressView("Loading servers…").controlSize(.small)
+                    } else {
+                        Picker("Server", selection: $selectedServerName) {
+                            Text("Select a server…").tag("")
+                            ForEach(servers, id: \.id) { s in
+                                Text(s.serverName ?? s.id).tag(s.serverName ?? "")
+                            }
                         }
                     }
+                } else {
+                    Text("No server needed for unassign.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 if let result {
@@ -346,8 +367,9 @@ struct InlineAssignView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
                     .tint(mode == .assign ? .blue : .orange)
-                    .disabled(selectedServerName.isEmpty || isExecuting)
+                    .disabled((mode == .assign && selectedServerName.isEmpty) || isExecuting)
                     .controlSize(.large)
                 }
             }
@@ -368,11 +390,19 @@ struct InlineAssignView: View {
         isExecuting = true; errorMessage = nil
         do {
             let client = try await appViewModel.ensureConnected()
-            let serviceId = try await client.getMdmServerIdByName(selectedServerName)
-            let activityType = mode == .assign ? "ASSIGN_DEVICES" : "UNASSIGN_DEVICES"
-            result = try await client.createDeviceActivity(
-                activityType: activityType, serials: serials, serviceId: serviceId
-            )
+            if mode == .assign {
+                let serviceId = try await client.getMdmServerIdByName(selectedServerName)
+                result = try await client.createDeviceActivity(
+                    activityType: "ASSIGN_DEVICES", serials: serials, serviceId: serviceId
+                )
+            } else {
+                // Unassign each device from its current server (Apple requires a target).
+                let outcome = try await client.unassignFromCurrentServer(serials: serials)
+                result = outcome.activities.first
+                if outcome.activities.isEmpty {
+                    errorMessage = "None of the selected devices are currently assigned to a server."
+                }
+            }
         } catch { errorMessage = error.localizedDescription }
         isExecuting = false
     }

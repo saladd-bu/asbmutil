@@ -257,10 +257,7 @@ struct Assign: AsyncParsableCommand {
 
         let serialNumbers: [String]
         if let serials = serials {
-            serialNumbers = serials
-                .split(separator: ",")
-                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
+            serialNumbers = CSVParser.parseSerialTokens(serials)
         } else if let csvFile = csvFile {
             serialNumbers = try CSVParser.readSerials(from: csvFile)
         } else {
@@ -302,13 +299,13 @@ struct Unassign: AsyncParsableCommand {
     @Option(name: .customLong("csv-file"), help: "Path to CSV file containing serial numbers (first column)")
     var csvFile: String?
 
-    @Option(name: .customLong("mdm"), help: "MDM server name")
-    var mdmName: String
+    @Option(name: .customLong("mdm"), help: "MDM server name to unassign from. Optional: omit to unassign each device from whichever server it is currently assigned to (looked up per device and grouped).")
+    var mdmName: String?
 
     @Flag(name: .customLong("skip-verify"), help: "Skip the pre-flight check that each serial exists before submitting. By default, serials returning HTTP 404 (e.g. not yet registered by the reseller) are reported and excluded.")
     var skipVerify: Bool = false
 
-    @Flag(name: .customLong("confirm"), help: "After submitting, poll the activity to completion and re-query each device to confirm it is no longer on the target MDM. Exits non-zero if any device still is.")
+    @Flag(name: .customLong("confirm"), help: "After submitting, poll the activity to completion and re-query each device to confirm it is no longer assigned (to the target MDM, or to any server when --mdm is omitted). Exits non-zero if any device still is.")
     var confirm: Bool = false
 
     @Option(name: .customLong("confirm-interval"), help: "Seconds between confirmation polls (default: 10)")
@@ -336,14 +333,10 @@ struct Unassign: AsyncParsableCommand {
 
     func run() async throws {
         let client = try await APIClient(credentials: Creds.load(profileName: profileName), profileName: profileName)
-        let serviceId = try await client.getMdmServerIdByName(mdmName)
 
         let serialNumbers: [String]
         if let serials = serials {
-            serialNumbers = serials
-                .split(separator: ",")
-                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
+            serialNumbers = CSVParser.parseSerialTokens(serials)
         } else if let csvFile = csvFile {
             serialNumbers = try CSVParser.readSerials(from: csvFile)
         } else {
@@ -354,22 +347,45 @@ struct Unassign: AsyncParsableCommand {
             ? serialNumbers
             : try await verifiedSerials(serialNumbers, client: client, operation: "unassign")
 
-        let activityDetails = try await client.createDeviceActivity(
-            activityType: "UNASSIGN_DEVICES",
-            serials: toSubmit,
-            serviceId: serviceId
-        )
-        print(String(decoding: try JSONEncoder().encode(activityDetails), as: UTF8.self))
-
-        if confirm {
-            try await confirmActivity(
-                activityDetails,
-                serials: toSubmit,
-                expected: .unassigned(serverId: serviceId),
-                client: client,
-                interval: confirmInterval,
-                timeout: confirmTimeout
+        // With --mdm, unassign from that specific server. Without it, look up each
+        // device's current server and unassign from wherever it is (Apple requires an
+        // mdmServer target, so a single "no server" request is not possible).
+        if let mdmName {
+            let serviceId = try await client.getMdmServerIdByName(mdmName)
+            let activityDetails = try await client.createDeviceActivity(
+                activityType: "UNASSIGN_DEVICES", serials: toSubmit, serviceId: serviceId
             )
+            print(String(decoding: try JSONEncoder().encode(activityDetails), as: UTF8.self))
+
+            if confirm {
+                try await confirmActivity(
+                    activityDetails, serials: toSubmit,
+                    expected: .unassigned(serverId: serviceId),
+                    client: client, interval: confirmInterval, timeout: confirmTimeout
+                )
+            }
+        } else {
+            let outcome = try await client.unassignFromCurrentServer(serials: toSubmit)
+            print(String(decoding: try JSONEncoder().encode(outcome.activities), as: UTF8.self))
+            if !outcome.alreadyUnassigned.isEmpty {
+                FileHandle.standardError.write(Data("Skipped (not assigned to any server): \(outcome.alreadyUnassigned.joined(separator: ", "))\n".utf8))
+            }
+            if !outcome.notFound.isEmpty {
+                FileHandle.standardError.write(Data("Skipped (not found): \(outcome.notFound.joined(separator: ", "))\n".utf8))
+            }
+            for e in outcome.errored {
+                FileHandle.standardError.write(Data("Could not read assignment for \(e.serial): \(e.message)\n".utf8))
+            }
+
+            if confirm {
+                for activity in outcome.activities {
+                    try await confirmActivity(
+                        activity, serials: activity.deviceSerials,
+                        expected: .unassignedAny,
+                        client: client, interval: confirmInterval, timeout: confirmTimeout
+                    )
+                }
+            }
         }
     }
 }
@@ -560,7 +576,7 @@ struct ListDevicesServers: AsyncParsableCommand {
     private func runDeviceLookup(client: APIClient) async throws {
         let serialNumbers: [String]
         if let serials = serials {
-            serialNumbers = serials.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+            serialNumbers = CSVParser.parseSerialTokens(serials)
         } else if let csvFile = csvFile {
             serialNumbers = try CSVParser.readSerials(from: csvFile)
         } else {
@@ -639,7 +655,7 @@ struct GetDevicesInfo: AsyncParsableCommand {
 
         let serialNumbers: [String]
         if let serials = serials {
-            serialNumbers = serials.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+            serialNumbers = CSVParser.parseSerialTokens(serials)
         } else if let csvFile = csvFile {
             serialNumbers = try CSVParser.readSerials(from: csvFile)
         } else {

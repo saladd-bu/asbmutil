@@ -19,8 +19,7 @@ struct MDMServerDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Server info
             VStack(alignment: .leading, spacing: 4) {
-                Text(server.serverName ?? "Server")
-                    .font(.headline)
+                SectionHeader(server.serverName ?? "Server", level: .prominent)
                 Text(server.serverType ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -34,12 +33,21 @@ struct MDMServerDetailView: View {
             Divider()
 
             if isLoading {
-                ProgressView("Loading devices...")
+                ProgressView("Loading devices…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = errorMessage {
-                InlineHint(.danger, error)
-                    .padding()
-                Spacer()
+                ContentUnavailableView {
+                    Label("Couldn't Load Devices", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Retry") { Task { await loadDevices() } }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if devices.isEmpty {
+                ContentUnavailableView("No Devices", systemImage: "desktopcomputer",
+                                       description: Text("No devices are assigned to this server."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 HStack {
                     Text("\(devices.count) devices")
@@ -48,7 +56,7 @@ struct MDMServerDetailView: View {
                     Spacer()
                 }
                 .padding(.horizontal)
-                .padding(.top, 8)
+                .padding(.top, Spacing.sm)
 
                 List(filteredDevices, id: \.self) { serial in
                     Text(serial)

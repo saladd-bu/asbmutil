@@ -3,22 +3,29 @@ import ASBMUtilCore
 
 struct BatchStatusView: View {
     @Environment(AppViewModel.self) private var appViewModel
-    @State private var viewModel = BatchStatusViewModel()
+    @FocusState private var idFocused: Bool
+
+    // Owned by AppViewModel so the activity id, status, and poll log survive tab switches.
+    private var viewModel: BatchStatusViewModel { appViewModel.batchStatusModel }
 
     var body: some View {
+        @Bindable var viewModel = appViewModel.batchStatusModel
+
         VStack(alignment: .leading, spacing: 0) {
             // Input area
-            GroupBox("Activity") {
-                VStack(alignment: .leading, spacing: 8) {
+            LabeledSection("Activity") {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
                     TextField("Activity ID", text: $viewModel.activityId)
                         .textFieldStyle(.roundedBorder)
                         .fontDesign(.monospaced)
+                        .focused($idFocused)
 
                     HStack {
                         Button("Check Status") {
                             Task { await checkOnce() }
                         }
                         .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
                         .disabled(!viewModel.canCheck)
 
                         if viewModel.isPolling {
@@ -33,7 +40,7 @@ struct BatchStatusView: View {
 
                         Spacer()
 
-                        HStack(spacing: 12) {
+                        HStack(spacing: Spacing.md) {
                             LabeledContent("Interval") {
                                 Stepper("\(viewModel.pollInterval)s", value: $viewModel.pollInterval, in: 1...120)
                             }
@@ -48,9 +55,7 @@ struct BatchStatusView: View {
             .padding()
 
             if !viewModel.status.isEmpty {
-                HStack {
-                    Text("Status:")
-                        .font(.headline)
+                LabeledContent("Status") {
                     StatusBadge(status: viewModel.status)
                 }
                 .padding(.horizontal)
@@ -61,19 +66,16 @@ struct BatchStatusView: View {
             }
 
             if let error = viewModel.errorMessage {
-                InlineHint(.danger, error)
+                InlineHint(.danger, error, isLive: false)
                     .padding(.horizontal)
             }
 
-            Divider().padding(.top, 8)
-
-            // Poll log
+            // Poll log / empty state
             if !viewModel.pollLog.isEmpty {
-                Text("Poll Log")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Divider().padding(.top, Spacing.sm)
+                SectionHeader("Poll Log")
                     .padding(.horizontal)
-                    .padding(.top, 8)
+                    .padding(.top, Spacing.sm)
 
                 List(viewModel.pollLog) { entry in
                     HStack {
@@ -83,28 +85,33 @@ struct BatchStatusView: View {
                         StatusBadge(status: entry.status)
                     }
                 }
+            } else if viewModel.status.isEmpty {
+                ContentUnavailableView("No Status Checked", systemImage: "clock.arrow.circlepath",
+                                       description: Text("Enter an activity ID above to check its status once, or poll until it finishes."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Spacer()
             }
         }
         .navigationTitle("Batch Status")
+        .onAppear { if viewModel.status.isEmpty && !viewModel.isPolling { idFocused = true } }
     }
 
     private func checkOnce() async {
         do {
             let client = try await appViewModel.ensureConnected()
-            await viewModel.checkOnce(client: client)
+            await appViewModel.batchStatusModel.checkOnce(client: client)
         } catch {
-            viewModel.errorMessage = error.localizedDescription
+            appViewModel.batchStatusModel.errorMessage = error.localizedDescription
         }
     }
 
     private func startPolling() async {
         do {
             let client = try await appViewModel.ensureConnected()
-            viewModel.startPolling(client: client)
+            appViewModel.batchStatusModel.startPolling(client: client)
         } catch {
-            viewModel.errorMessage = error.localizedDescription
+            appViewModel.batchStatusModel.errorMessage = error.localizedDescription
         }
     }
 }

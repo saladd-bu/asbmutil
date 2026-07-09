@@ -1,7 +1,8 @@
 import SwiftUI
+import AppKit
 import ASBMUtilCore
 
-private extension DeviceAttributes {
+extension DeviceAttributes {
     var sortProductFamily: String { productFamily ?? "" }
     var sortProductType: String { productType ?? "" }
     var sortStatus: String { status ?? "" }
@@ -26,7 +27,7 @@ private extension DeviceAttributes {
     /// Sentinel for missing dates so empty rows sort to the bottom on ascending order.
     private static let missingDate = Date.distantPast
 
-    private static func parseDate(_ s: String?) -> Date {
+    static func parseDate(_ s: String?) -> Date {
         guard let s, !s.isEmpty else { return missingDate }
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -34,6 +35,21 @@ private extension DeviceAttributes {
         let plain = ISO8601DateFormatter()
         if let d = plain.date(from: s) { return d }
         return missingDate
+    }
+
+    /// A human-readable date for display, or "" when absent/unparseable. Keeps the
+    /// table from showing raw ISO-8601 timestamps like `2024-06-01T12:00:00.000Z`.
+    static func displayDate(_ s: String?) -> String {
+        let d = parseDate(s)
+        guard d != missingDate else { return "" }
+        return d.formatted(.dateTime.year().month().day())
+    }
+
+    /// A human-readable date + time for display, or "" when absent/unparseable.
+    static func displayDateTime(_ s: String?) -> String {
+        let d = parseDate(s)
+        guard d != missingDate else { return "" }
+        return d.formatted(.dateTime.year().month().day().hour().minute())
     }
 }
 
@@ -50,6 +66,13 @@ struct DeviceTable: View {
             group1
             group2
         }
+        .contextMenu(forSelectionType: String.self) { ids in
+            Button("Copy Serial Number\(ids.count == 1 ? "" : "s")") { copySerials(ids) }
+                .disabled(ids.isEmpty)
+            Button("Copy as Rows (TSV)") { copyRows(ids) }
+                .disabled(ids.isEmpty)
+        }
+        .onCopyCommand { copyItemProviders(selection) }
         .onAppear { sortedDevices = devices.sorted(using: sortOrder) }
         .onChange(of: devices) { _, new in
             sortedDevices = new.sorted(using: sortOrder)
@@ -57,6 +80,41 @@ struct DeviceTable: View {
         .onChange(of: sortOrder) { _, new in
             sortedDevices = devices.sorted(using: new)
         }
+    }
+
+    // MARK: - Copy
+
+    private func rows(for ids: Set<String>) -> [DeviceAttributes] {
+        sortedDevices.filter { ids.contains($0.serialNumber) }
+    }
+
+    private func copySerials(_ ids: Set<String>) {
+        let text = rows(for: ids).map(\.serialNumber).joined(separator: "\n")
+        writeToPasteboard(text)
+    }
+
+    private func copyRows(_ ids: Set<String>) {
+        writeToPasteboard(tsv(for: ids))
+    }
+
+    /// ⌘C support: hand the standard Copy command the selected serials as text.
+    private func copyItemProviders(_ ids: Set<String>) -> [NSItemProvider] {
+        guard !ids.isEmpty else { return [] }
+        return [NSItemProvider(object: rows(for: ids).map(\.serialNumber).joined(separator: "\n") as NSString)]
+    }
+
+    private func tsv(for ids: Set<String>) -> String {
+        rows(for: ids).map { d in
+            [d.serialNumber, d.displayModel, d.productFamily ?? "", d.productType ?? "",
+             d.status ?? "", d.deviceCapacity ?? "", d.purchaseSourceType ?? "",
+             d.orderNumber ?? "", DeviceAttributes.displayDate(d.orderDateTime),
+             DeviceAttributes.displayDate(d.updatedDateTime)].joined(separator: "\t")
+        }.joined(separator: "\n")
+    }
+
+    private func writeToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     @TableColumnBuilder<DeviceAttributes, KeyPathComparator<DeviceAttributes>>
@@ -105,12 +163,12 @@ struct DeviceTable: View {
         .width(min: 80, ideal: 130)
 
         TableColumn("Order Date", value: \.sortOrderDate) { (d: DeviceAttributes) in
-            Text(d.orderDateTime ?? "")
+            Text(DeviceAttributes.displayDate(d.orderDateTime))
         }
         .width(min: 80, ideal: 120)
 
         TableColumn("Updated", value: \.sortUpdatedDate) { (d: DeviceAttributes) in
-            Text(d.updatedDateTime ?? "")
+            Text(DeviceAttributes.displayDate(d.updatedDateTime))
         }
         .width(min: 80, ideal: 120)
     }

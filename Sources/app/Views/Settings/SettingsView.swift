@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var expandedProfile: String?
     @State private var renamingProfile: String?
     @State private var renameText = ""
+    @FocusState private var newNameFocused: Bool
 
     var body: some View {
         TabView {
@@ -88,6 +89,19 @@ struct SettingsView: View {
 
     private var profilesTab: some View {
         Form {
+            if viewModel.profiles.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                        Text("No profiles yet")
+                            .font(.headline)
+                        Text("A profile holds the API credentials (Client ID, Key ID, and private key) for one Apple School or Business Manager account. Add one to connect.")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, Spacing.xs)
+                }
+            }
+
             ForEach(viewModel.profiles, id: \.name) { profile in
                 profileRow(profile)
             }
@@ -113,12 +127,13 @@ struct SettingsView: View {
 
     private var newProfileSheet: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("New Profile").font(.headline)
+            SectionHeader("New Profile", level: .prominent)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Profile Name").font(.caption).foregroundStyle(.secondary)
                 TextField("e.g. production, school-west", text: $newName)
                     .textFieldStyle(.roundedBorder)
+                    .focused($newNameFocused)
                     .accessibilityLabel("Profile Name")
             }
 
@@ -145,6 +160,7 @@ struct SettingsView: View {
                     } else {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(Color.statusSuccess).font(.caption)
+                            .accessibilityHidden(true)
                         Text("Loaded (\(newPem.count) chars)")
                             .font(.caption).foregroundStyle(.secondary)
                         Button("Change...") { showNewPemPicker = true }
@@ -189,6 +205,7 @@ struct SettingsView: View {
         }
         .padding(20)
         .frame(width: 440)
+        .onAppear { newNameFocused = true }
         .fileImporter(
             isPresented: $showNewPemPicker,
             allowedContentTypes: [UTType(filenameExtension: "pem") ?? .plainText, .plainText],
@@ -260,6 +277,7 @@ struct SettingsView: View {
                 .controlSize(.small)
                 .buttonStyle(.bordered)
                 .disabled(viewModel.profiles.count <= 1)
+                .help(viewModel.profiles.count <= 1 ? "At least one profile is required." : "Delete this profile")
             }
 
             if isExpanded {
@@ -290,7 +308,7 @@ struct SettingsView: View {
                 Text("Client ID").font(.callout).foregroundStyle(.secondary)
                     .frame(width: 60, alignment: .trailing)
                 TextField(text: $viewModel.clientId, prompt: Text("SCHOOLAPI.xxx or BUSINESSAPI.xxx")) {}
-                    .textFieldStyle(.squareBorder).fontDesign(.monospaced).font(.callout)
+                    .textFieldStyle(.roundedBorder).fontDesign(.monospaced).font(.callout)
                     .accessibilityLabel("Client ID")
             }
 
@@ -298,7 +316,7 @@ struct SettingsView: View {
                 Text("Key ID").font(.callout).foregroundStyle(.secondary)
                     .frame(width: 60, alignment: .trailing)
                 TextField(text: $viewModel.keyId, prompt: Text("Key ID from Apple")) {}
-                    .textFieldStyle(.squareBorder).fontDesign(.monospaced).font(.callout)
+                    .textFieldStyle(.roundedBorder).fontDesign(.monospaced).font(.callout)
                     .accessibilityLabel("Key ID")
             }
 
@@ -309,6 +327,7 @@ struct SettingsView: View {
                     Button("Select PEM File...") { showFilePicker = true }.controlSize(.small)
                 } else {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.statusSuccess).font(.caption)
+                        .accessibilityHidden(true)
                     Text("Loaded (\(viewModel.pemContent.count) chars)").font(.caption).foregroundStyle(.secondary)
                     Button("Change...") { showFilePicker = true }.controlSize(.small)
                 }
@@ -321,6 +340,7 @@ struct SettingsView: View {
                     viewModel.loadProfiles()
                 }
                 .buttonStyle(.borderedProminent).controlSize(.small)
+                .keyboardShortcut(.defaultAction)
                 .disabled(viewModel.clientId.isEmpty || viewModel.keyId.isEmpty || viewModel.pemContent.isEmpty)
 
                 Button("Test Connection") {

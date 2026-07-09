@@ -19,12 +19,13 @@ struct DeviceDetailView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = viewModel.errorMessage {
-                VStack(alignment: .leading, spacing: 8) {
-                    InlineHint(.danger, error)
-                    Button("Retry") { Task { await loadInfo() } }.font(.caption)
+                ContentUnavailableView {
+                    Label("Couldn't Load Device", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Retry") { Task { await loadInfo() } }
                 }
-                .padding()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else if let info = viewModel.deviceInfo {
                 deviceContent(info)
             } else {
@@ -158,6 +159,7 @@ struct DeviceDetailView: View {
                             Task { await performAssign(type: "ASSIGN_DEVICES") }
                         }
                         .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
                         .controlSize(.small)
                         .disabled(selectedServerName.isEmpty || isAssigning)
 
@@ -186,6 +188,7 @@ struct DeviceDetailView: View {
                             Task { await performAssign(type: "ASSIGN_DEVICES") }
                         }
                         .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
                         .controlSize(.small)
                         .disabled(selectedServerName.isEmpty || isAssigning)
 
@@ -218,6 +221,7 @@ struct DeviceDetailView: View {
         isAssigning = true; assignError = nil
         do {
             let client = try await appViewModel.ensureConnected()
+            // Unassign from the device's current server (Apple requires a server target).
             assignResult = try await client.createDeviceActivity(
                 activityType: "UNASSIGN_DEVICES", serials: [serialNumber], serviceId: currentMdm.id
             )
@@ -271,19 +275,28 @@ struct DeviceDetailView: View {
     }
 
     private func purchaseRows(_ d: DeviceAttributes) -> [(String, String)] {
-        [("Order #", d.orderNumber ?? "-"), ("Order Date", d.orderDateTime ?? "-"),
+        [("Order #", d.orderNumber ?? "-"), ("Order Date", fmtDate(d.orderDateTime)),
          ("Part #", d.partNumber ?? "-"), ("Source", d.purchaseSourceType ?? "-"),
          ("Source ID", d.purchaseSourceId ?? "-")]
     }
 
     private func timestampRows(_ d: DeviceAttributes) -> [(String, String)] {
-        [("Added", d.addedToOrgDateTime ?? "-"), ("Updated", d.updatedDateTime ?? "-")]
+        [("Added", fmtDateTime(d.addedToOrgDateTime)), ("Updated", fmtDateTime(d.updatedDateTime))]
+    }
+
+    /// Human-readable date / date-time for the detail rows, or "-" when absent — never a
+    /// raw ISO-8601 string.
+    private func fmtDate(_ s: String?) -> String {
+        let v = DeviceAttributes.displayDate(s); return v.isEmpty ? "-" : v
+    }
+    private func fmtDateTime(_ s: String?) -> String {
+        let v = DeviceAttributes.displayDateTime(s); return v.isEmpty ? "-" : v
     }
 
     private func appleCareRows(_ c: AppleCareAttributes) -> [(String, String)] {
         [("Plan", c.description ?? "-"),
          ("Status", c.status.map(StatusStyle.displayLabel) ?? "-"),
-         ("Start", c.startDateTime ?? "-"), ("End", c.endDateTime ?? "-"),
+         ("Start", fmtDate(c.startDateTime)), ("End", fmtDate(c.endDateTime)),
          ("Renewable", c.isRenewable == true ? "Yes" : "No")]
     }
 
